@@ -92,3 +92,4 @@ for meta in list(ui_loop('state estimation')):
 #   downloading sufficient to outpace rating and the user gets a smooth
 #   experience
 #   - provide links to download PDFs via arxiv.org
+#   - suggest searches based on words that rate highly
