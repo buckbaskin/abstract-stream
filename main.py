@@ -1,4 +1,5 @@
 import functools
+import datetime
 import time
 import random
 import requests
@@ -12,9 +13,6 @@ BASE_URL = "http://export.arxiv.org/api/query?"
 
 def interact():
     code.InteractiveConsole(locals=globals()).interact()
-
-
-print("Hello World")
 
 
 class InteractionsCounter(object):
@@ -72,9 +70,9 @@ class PrintTrigger(object):
     def __call__(self):
         return self.action()
 
-    def __str__(self):
-        self.action()
-        return f"PrintTrigger({self.name})"
+    def __repr__(self):
+        print(f"*{self.name}")
+        return str(self.action())
 
 
 class RenderRecord(object):
@@ -82,15 +80,21 @@ class RenderRecord(object):
         self.record = record
 
     def __repr__(self):
-        return f"RenderRecord({self.record})"
-
-    def __str__(self):
         def lines():
+            yield ""
             yield self.record["title"]
             yield f"Scores: PRNG {self.record['prng_score']:.2f} TFIDF {self.record['tfidf_score']:.2f} Citation {self.record['citation_score']:.2f}"
             yield ""
             yield from self.record["abstract"].split("\n")
             yield ""
+
+
+            actions = ['d = dislike'
+            ,'s = skip'
+            ,'i = interested'
+            ,'r = read'
+            ,'l = liked']
+            yield ' | '.join(actions)
 
         return "\n".join(lines())
 
@@ -120,11 +124,15 @@ class UserInterface(object):
 
             self.rated_items = py_version["rated_items"]
             self.unrated_items = py_version["unrated_items"]
+            print(
+                f"Loaded {len(self.rated_items)} ratings and {len(self.unrated_items)} unrated records"
+            )
         except FileNotFoundError:
             pass
 
     @track_usage
     def store(self):
+        start = datetime.datetime.now()
         string_version = json.dumps(
             {
                 "rated_items": self.rated_items,
@@ -133,6 +141,9 @@ class UserInterface(object):
         )
         with open("abstract_stream.json", "w") as f:
             f.write(string_version)
+
+        end = datetime.datetime.now()
+        print('Stored records in %s' % ((end - start).total_seconds()))
 
     @track_usage
     def discover(self, *, store=True):
@@ -235,37 +246,42 @@ class UserInterface(object):
 
     @track_usage
     def download(self):
-        DOWNLOAD_URL = 'https://arxiv.org/pdf/%s.pdf'
+        DOWNLOAD_URL = "https://arxiv.org/pdf/%s.pdf"
 
-        print('download')
+        print("download")
         print(self.active_item)
-        response = requests.get(DOWNLOAD_URL % self.active_item['id'])
-        with open('%s.pdf' % self.active_item['id'], 'wb') as f:
+        response = requests.get(DOWNLOAD_URL % self.active_item["id"])
+        with open("%s.pdf" % self.active_item["id"], "wb") as f:
             f.write(response.content)
 
     def _mark_as_interested(self):
         self.active_item["rating"] = 1
         self.rated_items.append(self.active_item)
+        self.store()
 
-        self._tick(store=False)
+        return self._tick(store=False)
 
     def _mark_as_read(self):
         self.active_item["rating"] = 2
         self.rated_items.append(self.active_item)
+        self.store()
 
-        self._tick(store=False)
+        return self._tick(store=False)
 
     def _mark_as_liked(self):
         self.active_item["rating"] = 3
         self.rated_items.append(self.active_item)
+        self.store()
 
-        self._tick(store=False)
+        return self._tick(store=False)
 
     def _mark_as_disliked(self):
         self.active_item["rating"] = 3
         self.rated_items.append(self.active_item)
+        self.store()
 
-        self._tick(store=False)
+        return self._tick(store=False)
+
 
 ui = UserInterface()
 load = ui.load
@@ -279,6 +295,43 @@ l = liked = ui.mark_as_liked
 s = skip = ui.skip
 d = dislike = ui.mark_as_disliked
 download = ui.download
+
+operations = [
+    ("load", "load saved state"),
+    ("store", "store algorithm state"),
+    ("discover", "Surface likely interests based on previous data"),
+    ("explore", "Surface random papers"),
+    ("i = interested", "Mark as interested and go to the next paper"),
+    ("r = read", "Mark that you read the paper and go to the next paper"),
+    ("l = liked", "Mark that you read and liked the paper. Go to the next paper"),
+    ("s = skip", "Skip the current paper without rating"),
+    ("d = dislike", "Dislike the current paper. Recommend less like this"),
+    ("download", "Download the current paper"),
+]
+
+
+for op, description in operations:
+    print(op.ljust(20), description)
+
+
+print(
+    "Example Usage\n",
+    """
+        >>> load()
+        >>> discover()
+        ...
+        Abstract Info
+        ...
+        >>> download()
+        ...
+        read the paper
+        ...
+        >>> l
+        ...
+        A new abstract
+        ...
+        """,
+)
 
 
 def test(*, store=False):
