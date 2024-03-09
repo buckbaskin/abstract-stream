@@ -143,7 +143,7 @@ class UserInterface(object):
             f.write(string_version)
 
         end = datetime.datetime.now()
-        print('Stored records in %s' % ((end - start).total_seconds()))
+        print('Stored records in %.2f sec' % ((end - start).total_seconds()))
 
     @track_usage
     def discover(self, *, store=True):
@@ -181,6 +181,9 @@ class UserInterface(object):
         return RenderRecord(self.active_item)
 
     def _refill(self):
+        # TODO: store query state in the constructor, so each batch proceeds forward
+        # TODO: browse all of cs.RO, cs.SE
+        # TODO: actually score by tfidf
         search_query = "robot"
         search_query = f"all:{search_query}"
         start = 0
@@ -189,9 +192,9 @@ class UserInterface(object):
         wait_time = 3
 
         viewed_set = set(
-            [record["title"] for record in self.rated_items]
-            + [record["title"] for record in self.unrated_items]
-            + [record["title"] for record in self.skipped_items]
+            [record["id"] for record in self.rated_items]
+            + [record["id"] for record in self.unrated_items]
+            + [record["id"] for record in self.skipped_items]
         )
 
         print("Searching arXiv for %s" % search_query)
@@ -217,7 +220,7 @@ class UserInterface(object):
                 arxiv_id = entry.id.split("/abs/")[-1]
                 title = entry.title
                 abstract = entry.summary
-                if title not in viewed_set:
+                if arxiv_id not in viewed_set:
                     self.unrated_items.append(
                         {
                             "id": arxiv_id,
