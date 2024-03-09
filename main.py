@@ -184,6 +184,7 @@ class UserInterface(object):
         # TODO: store query state in the constructor, so each batch proceeds forward
         # TODO: browse all of cs.RO, cs.SE
         # TODO: actually score by tfidf
+        # TODO: convert this search query into its own action
         search_query = "robot"
         search_query = f"all:{search_query}"
         start = 0
