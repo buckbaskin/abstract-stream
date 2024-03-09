@@ -40,13 +40,13 @@ def stream_abstracts(search_query):
 
         # Run through each entry, and print out information
         for entry in feed.entries:
-            arxiv_id=entry.id.split("/abs/")[-1]
+            arxiv_id = entry.id.split("/abs/")[-1]
             title = entry.title
             abstract = entry.summary
-            yield {'id': arxiv_id, 'title': title, 'abstract': abstract}
+            yield {"id": arxiv_id, "title": title, "abstract": abstract}
 
         if len(feed.entries) < results_per_iteration:
-            print('Early Termination')
+            print("Early Termination")
             break
 
         # Remember to play nice and sleep a bit before you call
@@ -54,27 +54,29 @@ def stream_abstracts(search_query):
         print("Sleeping for %i seconds" % wait_time)
         time.sleep(wait_time)
 
+
 def ui_loop(search_query):
-    INTERACTIONS = {'y': 1, 'n': -1, '1': 2, '!': 2}
+    INTERACTIONS = {"y": 1, "n": -1, "1": 2, "!": 2}
 
     for idx, metadata in enumerate(stream_abstracts(search_query)):
         print(idx)
-        print(' Title    : ' + metadata['title'])
-        print('\n Abstract : ' + metadata['abstract'])
+        print(" Title    : " + metadata["title"])
+        print("\n Abstract : " + metadata["abstract"])
 
-        print('y/n/! yes+1 / no-1 / excited+2, others skipped')
+        print("y/n/! yes+1 / no-1 / excited+2, others skipped")
         result = input().lower()
         if result in INTERACTIONS:
             rating = INTERACTIONS[result]
-            print(f'Rating: {rating}')
+            print(f"Rating: {rating}")
         else:
             rating = 0
 
-        metadata['rating'] = rating
+        metadata["rating"] = rating
         yield metadata
 
-for meta in list(ui_loop('state estimation')):
-    print(metadata['rating'], metadata['title'])
+
+for meta in list(ui_loop("state estimation")):
+    print(metadata["rating"], metadata["title"])
 
 # Future Expansion (in only a vague order):
 #   - pipe through configuration from the outer caller so that the number of
