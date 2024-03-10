@@ -1,4 +1,6 @@
 import functools
+from os import mkdir
+import os
 import datetime
 import time
 import random
@@ -186,10 +188,10 @@ class UserInterface(object):
         # TODO: actually score by tfidf
         # TODO: convert this search query into its own action
         search_query = "robot"
-        search_query = f"all:{search_query}"
+        search_query = f"cat:CS.RO"
         start = 0
-        total_results = 20
-        results_per_iteration = 20
+        total_results = 500
+        results_per_iteration = 50
         wait_time = 3
 
         viewed_set = set(
@@ -235,6 +237,10 @@ class UserInterface(object):
                 else:
                     print("De-duplicating record. Title:", title)
 
+            if len(self.unrated_items) > 50:
+                print('Early refill')
+                break
+
             if len(feed.entries) < results_per_iteration:
                 print("Early Termination")
                 break
@@ -255,7 +261,16 @@ class UserInterface(object):
         print("download")
         print(self.active_item)
         response = requests.get(DOWNLOAD_URL % self.active_item["id"])
-        with open("%s.pdf" % self.active_item["id"], "wb") as f:
+
+        try:
+            mkdir('pdf')
+        except FileExistsError:
+            pass
+
+        write_out_id = self.active_item['id']
+        write_out_id = write_out_id.replace('/', '__')
+
+        with open(os.path.join("pdf", write_out_id), "wb") as f:
             f.write(response.content)
 
     def _mark_as_interested(self):
