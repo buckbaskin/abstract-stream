@@ -90,13 +90,14 @@ class RenderRecord(object):
             yield from self.record["abstract"].split("\n")
             yield ""
 
-
-            actions = ['d = dislike'
-            ,'s = skip'
-            ,'i = interested'
-            ,'r = read'
-            ,'l = liked']
-            yield ' | '.join(actions)
+            actions = [
+                "d = dislike",
+                "s = skip",
+                "i = interested",
+                "r = read",
+                "l = liked",
+            ]
+            yield " | ".join(actions)
 
         return "\n".join(lines())
 
@@ -118,12 +119,16 @@ class UserInterface(object):
 
         self.sort_key = lambda record: record["prng_score"]
 
+        # query memoizing
+        self.start_index = 0
+
     @track_usage
     def load(self):
         try:
             with open("abstract_stream.json", "r") as f:
                 py_version = json.load(f)
 
+            self.active_item = None
             self.rated_items = py_version["rated_items"]
             self.unrated_items = py_version["unrated_items"]
             print(
@@ -138,14 +143,16 @@ class UserInterface(object):
         string_version = json.dumps(
             {
                 "rated_items": self.rated_items,
-                "unrated_items": self.unrated_items + self.skipped_items,
+                "unrated_items": [self.active_item]
+                + self.unrated_items
+                + self.skipped_items,
             }
         )
         with open("abstract_stream.json", "w") as f:
             f.write(string_version)
 
         end = datetime.datetime.now()
-        print('Stored records in %.2f sec' % ((end - start).total_seconds()))
+        print("Stored records in %.2f sec" % ((end - start).total_seconds()))
 
     @track_usage
     def discover(self, *, store=True):
@@ -156,11 +163,17 @@ class UserInterface(object):
             record["prng_score"], record["tfidf_score"], record["citation_score"]
         )
 
+        if self.active_item is not None:
+            self.unrated_items.append(self.active_item)
+
         return self._tick(store=store)
 
     @track_usage
     def explore(self, *, store=True):
         self.sort_key = lambda record: record["prng_score"]
+
+        if self.active_item is not None:
+            self.unrated_items.append(self.active_item)
 
         return self._tick(store=store)
 
@@ -187,12 +200,10 @@ class UserInterface(object):
         # TODO: browse all of cs.RO, cs.SE
         # TODO: actually score by tfidf
         # TODO: convert this search query into its own action
-        search_query = "robot"
-        search_query = f"cat:CS.RO"
-        start = 0
-        total_results = 500
-        results_per_iteration = 50
-        wait_time = 3
+        search_query = "cat:CS.RO"
+        MAX_RESULTS = 500
+        WAIT_TIME = 3
+        RESULT_PER_ITERATION = 50
 
         viewed_set = set(
             [record["id"] for record in self.rated_items]
@@ -202,14 +213,16 @@ class UserInterface(object):
 
         print("Searching arXiv for %s" % search_query)
 
-        for i in range(start, total_results, results_per_iteration):
+        for i in range(
+            self.start_index, self.start_index // 2 + MAX_RESULTS, RESULT_PER_ITERATION
+        ):
 
-            print("Results %i - %i" % (i, i + results_per_iteration))
+            print("Results %i - %i" % (i, i + RESULT_PER_ITERATION))
 
             query = "search_query=%s&start=%i&max_results=%i" % (
                 search_query,
                 i,
-                results_per_iteration,
+                RESULT_PER_ITERATION,
             )
 
             # perform a GET request using the BASE_URL and query
@@ -238,17 +251,17 @@ class UserInterface(object):
                     print("De-duplicating record. Title:", title)
 
             if len(self.unrated_items) > 50:
-                print('Early refill')
+                print("Early refill")
                 break
 
-            if len(feed.entries) < results_per_iteration:
+            if len(feed.entries) < RESULT_PER_ITERATION:
                 print("Early Termination")
                 break
 
             # Remember to play nice and sleep a bit before you call
             # the API again!
-            print("Sleeping for %i seconds" % wait_time)
-            time.sleep(wait_time)
+            print("Sleeping for %i seconds" % WAIT_TIME)
+            time.sleep(WAIT_TIME)
 
     @track_usage
     def skip(self):
@@ -263,12 +276,12 @@ class UserInterface(object):
         response = requests.get(DOWNLOAD_URL % self.active_item["id"])
 
         try:
-            mkdir('pdf')
+            mkdir("pdf")
         except FileExistsError:
             pass
 
-        write_out_id = self.active_item['id']
-        write_out_id = write_out_id.replace('/', '__')
+        write_out_id = self.active_item["id"]
+        write_out_id = write_out_id.replace("/", "__")
 
         with open(os.path.join("pdf", write_out_id), "wb") as f:
             f.write(response.content)
