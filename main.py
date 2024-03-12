@@ -1,4 +1,5 @@
 import functools
+from urllib.parse import quote_plus
 from os import mkdir
 import os
 import datetime
@@ -6,7 +7,7 @@ import time
 import random
 import requests
 import feedparser
-from collections import defaultdict
+from collections import defaultdict, Counter
 import json
 import code
 
@@ -102,14 +103,15 @@ class RenderRecord(object):
         return "\n".join(lines())
 
 
-class ArxivCategoryProvider(object):
+class ArxivBaseProvider(object):
     MAX_RESULTS = 500
     WAIT_TIME = 3
     RESULT_PER_ITERATION = 50
 
-    def __init__(self, category):
+    def __init__(self, query):
         self.start_index = 0
-        self.search_query = f"cat:{category}"
+        self.search_query = query
+        self.name = self.search_query
 
     def records(self):
         for i in range(
@@ -146,27 +148,41 @@ class ArxivCategoryProvider(object):
 
             if len(feed.entries) < self.RESULT_PER_ITERATION:
                 print(
-                    "Early Termination - ArxivCategoryProvider - %s"
-                    % (self.search_query)
+                    "Early Termination - ArxivBaseProvider - %s" % (self.search_query)
                 )
                 break
 
             # Remember to play nice and sleep a bit before you call
             # the API again!
             print(
-                "Sleeping for %i seconds - ArxivCategoryProvider - %s"
+                "Sleeping for %i seconds - ArxivBaseProvider - %s"
                 % (self.WAIT_TIME, self.search_query)
             )
             time.sleep(self.WAIT_TIME)
 
 
-def round_robin(iterators):
+class ArxivCategoryProvider(ArxivBaseProvider):
+    def __init__(self, category):
+        self.start_index = 0
+        self.search_query = f"cat:{category}"
+        self.name = self.search_query
+
+
+class ArxivSearchProvider(ArxivBaseProvider):
+    def __init__(self, search_terms):
+        self.start_index = 0
+        self.search_query = f"all:{quote_plus(search_terms)}"
+        self.name = self.search_query
+
+
+def round_robin(iterator_map):
     while True:
         nexts = []
-        for iterator in iterators:
+        for name, iterator in iterator_map.items():
             try:
                 nexts.append(next(iterator))
             except TypeError as te:
+                print("iterator:", name)
                 print(te)
                 raise
 
@@ -176,9 +192,20 @@ def round_robin(iterators):
         yield from nexts
 
 
+def deduplicate(records):
+    unique_records = set()
+
+    for r in records:
+        if r["id"] not in unique_records:
+            unique_records.add(r["id"])
+            yield r
+        else:
+            print("deduplicate - %s" % (r["title"],))
+
+
 class UserInterface(object):
     def __init__(self, providers):
-        self.providers = [p.records() for p in providers]
+        self.providers = {p.name: p.records() for p in providers}
 
         self.rated_items = []
         self.unrated_items = []
@@ -195,8 +222,21 @@ class UserInterface(object):
 
         self.sort_key = lambda record: record["prng_score"]
 
-        # query memoizing
-        self.start_index = 0
+    def stats(self):
+        print(
+            "%d rated, %d active, %d unrated, %d skipped"
+            % (
+                len(self.rated_items),
+                1 if self.active_item is not None else 0,
+                len(self.unrated_items),
+                len(self.skipped_items),
+            )
+        )
+        count = Counter((r["rating"] for r in self.rated_items))
+        print(
+            "%d disliked, %d skipped, %d interested, %d read, %d liked"
+            % (count[-1], count[0], count[1], count[2], count[3])
+        )
 
     @track_usage
     def load(self):
@@ -206,7 +246,10 @@ class UserInterface(object):
 
             self.active_item = None
             self.rated_items = py_version["rated_items"]
+            self.rated_items = list(deduplicate(self.rated_items))
+
             self.unrated_items = py_version["unrated_items"]
+            self.unrated_items = list(deduplicate(self.unrated_items))
             print(
                 f"Loaded {len(self.rated_items)} ratings and {len(self.unrated_items)} unrated records"
             )
@@ -274,14 +317,15 @@ class UserInterface(object):
         return RenderRecord(self.active_item)
 
     def _refill(self):
-        # TODO: browse all of cs.RO, cs.SE
-        # TODO: actually score by tfidf
+        # TODO: actually score by tfidf -> regressor predicting [0-dislike to 1-liked]
         # TODO: convert this search query into its own action
         viewed_set = set(
             [record["id"] for record in self.rated_items]
             + [record["id"] for record in self.unrated_items]
             + [record["id"] for record in self.skipped_items]
-            + [self.active_item["id"]] if self.active_item is not None else []
+            + [self.active_item["id"]]
+            if self.active_item is not None
+            else []
         )
 
         for record in round_robin(self.providers):
@@ -342,14 +386,20 @@ class UserInterface(object):
         return self._tick(store=False)
 
     def _mark_as_disliked(self):
-        self.active_item["rating"] = 3
+        self.active_item["rating"] = -1
         self.rated_items.append(self.active_item)
         self.store()
 
         return self._tick(store=False)
 
 
-ui = UserInterface([ArxivCategoryProvider("CS.RO"), ArxivCategoryProvider("CS.SE")])
+ui = UserInterface(
+    [
+        ArxivSearchProvider("auv"),
+        ArxivCategoryProvider("CS.RO"),
+        ArxivCategoryProvider("CS.SE"),
+    ]
+)
 load = ui.load
 store = ui.store
 discover = ui.discover
@@ -361,6 +411,7 @@ l = liked = ui.mark_as_liked
 s = skip = ui.skip
 d = dislike = ui.mark_as_disliked
 download = ui.download
+stats = ui.stats
 
 operations = [
     ("load", "load saved state"),
@@ -373,6 +424,7 @@ operations = [
     ("s = skip", "Skip the current paper without rating"),
     ("d = dislike", "Dislike the current paper. Recommend less like this"),
     ("download", "Download the current paper"),
+    ("stats", "Print out statistics for the rating system"),
 ]
 
 
@@ -421,6 +473,7 @@ def test(*, store=False):
     print(liked)
 
     download()
+    stats()
 
     if store:
         store()
