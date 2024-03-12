@@ -219,9 +219,11 @@ class UserInterface(object):
         string_version = json.dumps(
             {
                 "rated_items": self.rated_items,
-                "unrated_items": [self.active_item]
-                + self.unrated_items
-                + self.skipped_items,
+                "unrated_items": (
+                    [self.active_item]
+                    if self.active_item is not None
+                    else [] + self.unrated_items + self.skipped_items
+                ),
             }
         )
         with open("abstract_stream.json", "w") as f:
@@ -279,7 +281,7 @@ class UserInterface(object):
             [record["id"] for record in self.rated_items]
             + [record["id"] for record in self.unrated_items]
             + [record["id"] for record in self.skipped_items]
-            + [self.active_item["id"]]
+            + [self.active_item["id"]] if self.active_item is not None else []
         )
 
         for record in round_robin(self.providers):
@@ -347,7 +349,7 @@ class UserInterface(object):
         return self._tick(store=False)
 
 
-ui = UserInterface([ArxivCategoryProvider("CS.RO")])
+ui = UserInterface([ArxivCategoryProvider("CS.RO"), ArxivCategoryProvider("CS.SE")])
 load = ui.load
 store = ui.store
 discover = ui.discover
