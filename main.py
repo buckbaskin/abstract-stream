@@ -102,8 +102,84 @@ class RenderRecord(object):
         return "\n".join(lines())
 
 
+class ArxivCategoryProvider(object):
+    MAX_RESULTS = 500
+    WAIT_TIME = 3
+    RESULT_PER_ITERATION = 50
+
+    def __init__(self, category):
+        self.start_index = 0
+        self.search_query = f"cat:{category}"
+
+    def records(self):
+        for i in range(
+            self.start_index,
+            self.start_index // 2 + self.MAX_RESULTS,
+            self.RESULT_PER_ITERATION,
+        ):
+
+            query = "search_query=%s&start=%i&max_results=%i" % (
+                self.search_query,
+                i,
+                self.RESULT_PER_ITERATION,
+            )
+
+            # perform a GET request using the BASE_URL and query
+            response = requests.get(BASE_URL + query).text
+
+            # parse the response using feedparser
+            feed = feedparser.parse(response)
+
+            # Run through each entry, and print out information
+            for entry in feed.entries:
+                arxiv_id = entry.id.split("/abs/")[-1]
+                title = entry.title
+                abstract = entry.summary
+                yield {
+                    "id": arxiv_id,
+                    "title": title,
+                    "abstract": abstract,
+                    "prng_score": random.random(),
+                    "tfidf_score": 0.0,
+                    "citation_score": 0.0,
+                }
+
+            if len(feed.entries) < self.RESULT_PER_ITERATION:
+                print(
+                    "Early Termination - ArxivCategoryProvider - %s"
+                    % (self.search_query)
+                )
+                break
+
+            # Remember to play nice and sleep a bit before you call
+            # the API again!
+            print(
+                "Sleeping for %i seconds - ArxivCategoryProvider - %s"
+                % (self.WAIT_TIME, self.search_query)
+            )
+            time.sleep(self.WAIT_TIME)
+
+
+def round_robin(iterators):
+    while True:
+        nexts = []
+        for iterator in iterators:
+            try:
+                nexts.append(next(iterator))
+            except TypeError as te:
+                print(te)
+                raise
+
+        if len(nexts) == 0:
+            break
+
+        yield from nexts
+
+
 class UserInterface(object):
-    def __init__(self):
+    def __init__(self, providers):
+        self.providers = [p.records() for p in providers]
+
         self.rated_items = []
         self.unrated_items = []
         self.skipped_items = []
@@ -196,72 +272,28 @@ class UserInterface(object):
         return RenderRecord(self.active_item)
 
     def _refill(self):
-        # TODO: store query state in the constructor, so each batch proceeds forward
         # TODO: browse all of cs.RO, cs.SE
         # TODO: actually score by tfidf
         # TODO: convert this search query into its own action
-        search_query = "cat:CS.RO"
-        MAX_RESULTS = 500
-        WAIT_TIME = 3
-        RESULT_PER_ITERATION = 50
-
         viewed_set = set(
             [record["id"] for record in self.rated_items]
             + [record["id"] for record in self.unrated_items]
             + [record["id"] for record in self.skipped_items]
+            + [self.active_item["id"]]
         )
 
-        print("Searching arXiv for %s" % search_query)
+        for record in round_robin(self.providers):
+            assert isinstance(record, dict)
 
-        for i in range(
-            self.start_index, self.start_index // 2 + MAX_RESULTS, RESULT_PER_ITERATION
-        ):
-
-            print("Results %i - %i" % (i, i + RESULT_PER_ITERATION))
-
-            query = "search_query=%s&start=%i&max_results=%i" % (
-                search_query,
-                i,
-                RESULT_PER_ITERATION,
-            )
-
-            # perform a GET request using the BASE_URL and query
-            response = requests.get(BASE_URL + query).text
-
-            # parse the response using feedparser
-            feed = feedparser.parse(response)
-
-            # Run through each entry, and print out information
-            for entry in feed.entries:
-                arxiv_id = entry.id.split("/abs/")[-1]
-                title = entry.title
-                abstract = entry.summary
-                if arxiv_id not in viewed_set:
-                    self.unrated_items.append(
-                        {
-                            "id": arxiv_id,
-                            "title": title,
-                            "abstract": abstract,
-                            "prng_score": random.random(),
-                            "tfidf_score": 0.0,
-                            "citation_score": 0.0,
-                        }
-                    )
-                else:
-                    print("De-duplicating record. Title:", title)
+            arxiv_id = record["id"]
+            if arxiv_id not in viewed_set:
+                self.unrated_items.append(record)
+            else:
+                print("De-duplicating record. Title:", record["title"])
 
             if len(self.unrated_items) > 50:
-                print("Early refill")
+                print("Early refill pause")
                 break
-
-            if len(feed.entries) < RESULT_PER_ITERATION:
-                print("Early Termination")
-                break
-
-            # Remember to play nice and sleep a bit before you call
-            # the API again!
-            print("Sleeping for %i seconds" % WAIT_TIME)
-            time.sleep(WAIT_TIME)
 
     @track_usage
     def skip(self):
@@ -315,7 +347,7 @@ class UserInterface(object):
         return self._tick(store=False)
 
 
-ui = UserInterface()
+ui = UserInterface([ArxivCategoryProvider("CS.RO")])
 load = ui.load
 store = ui.store
 discover = ui.discover
