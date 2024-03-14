@@ -317,8 +317,6 @@ class UserInterface(object):
         return RenderRecord(self.active_item)
 
     def _refill(self):
-        # TODO: actually score by tfidf -> regressor predicting [0-dislike to 1-liked]
-        # TODO: convert this search query into its own action
         viewed_set = set(
             [record["id"] for record in self.rated_items]
             + [record["id"] for record in self.unrated_items]
