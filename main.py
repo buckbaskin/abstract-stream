@@ -11,6 +11,8 @@ from collections import defaultdict, Counter
 import json
 import code
 
+from tfidf import tfidf_score
+
 BASE_URL = "http://export.arxiv.org/api/query?"
 
 
@@ -192,8 +194,10 @@ def round_robin(iterator_map):
         yield from nexts
 
 
-def deduplicate(records):
-    unique_records = set()
+def deduplicate(records, other_keys=None):
+    if other_keys is None:
+        other_keys = []
+    unique_records = set(other_keys)
 
     for r in records:
         if r["id"] not in unique_records:
@@ -249,7 +253,12 @@ class UserInterface(object):
             self.rated_items = list(deduplicate(self.rated_items))
 
             self.unrated_items = py_version["unrated_items"]
-            self.unrated_items = list(deduplicate(self.unrated_items))
+            print('unrated items before deduplication', len(self.unrated_items))
+            self.unrated_items = list(
+                deduplicate(
+                    self.unrated_items, other_keys=(r["id"] for r in self.rated_items)
+                )
+            )
             print(
                 f"Loaded {len(self.rated_items)} ratings and {len(self.unrated_items)} unrated records"
             )
@@ -259,14 +268,16 @@ class UserInterface(object):
     @track_usage
     def store(self):
         start = datetime.datetime.now()
+        unrated_to_store =(
+                    ([self.active_item]
+                    if self.active_item is not None
+                    else []) + self.unrated_items + self.skipped_items
+                )
+        print('unrated_items to store', len(unrated_to_store))
         string_version = json.dumps(
             {
                 "rated_items": self.rated_items,
-                "unrated_items": (
-                    [self.active_item]
-                    if self.active_item is not None
-                    else [] + self.unrated_items + self.skipped_items
-                ),
+                "unrated_items": unrated_to_store,
             }
         )
         with open("abstract_stream.json", "w") as f:
@@ -321,10 +332,11 @@ class UserInterface(object):
             [record["id"] for record in self.rated_items]
             + [record["id"] for record in self.unrated_items]
             + [record["id"] for record in self.skipped_items]
-            + [self.active_item["id"]]
+            + ([self.active_item["id"]]
             if self.active_item is not None
-            else []
+            else [])
         )
+        print('viewed set before _refill', len(viewed_set))
 
         for record in round_robin(self.providers):
             assert isinstance(record, dict)
@@ -339,8 +351,16 @@ class UserInterface(object):
                 print("Early refill pause")
                 break
 
+        self._rerate()
+
+    def _rerate(self):
+        print("Updating unrated predictions...")
+        self.unrated_items = list(tfidf_score(self.rated_items, self.unrated_items))
+        print("... Done updating unrated predictions")
+
     @track_usage
     def skip(self):
+        # TODO skip not implemented
         raise NotImplementedError("skip")
 
     @track_usage
@@ -394,6 +414,7 @@ class UserInterface(object):
 ui = UserInterface(
     [
         ArxivSearchProvider("auv"),
+        ArxivSearchProvider("kalman"),
         ArxivCategoryProvider("CS.RO"),
         ArxivCategoryProvider("CS.SE"),
     ]

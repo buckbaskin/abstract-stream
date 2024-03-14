@@ -27,22 +27,57 @@ Dataset = namedtuple(
 )
 
 
-def _items_to_dataset(items):
-    data = []  # list of strings
-    target = []  # list of float scores to predict
+def _items_to_dataset(items, *, resample=False):
+    positive_data = []  # list of strings
+    positive_target = []  # list of float scores to predict
+    negative_data = []
+    negative_target = []
+
     target_names = []  # list of target classes
 
     for i in items:
-        data.append(i["title"] + "   " + i["abstract"])
         # ((-1) + 1) / 4 -> 0.00 # dislike
         # (( 0) + 1) / 4 -> 0.25
         # ((+1) + 1) / 4 -> 0.50 # interested
         # ((+2) + 1) / 4 -> 0.75 # read
         # ((+3) + 1) / 4 -> 1.00 # liked
+        text = i["title"] + "   " + i["abstract"]
+
         if "rating" in i:
-            target.append((i["rating"] + 1.0) / 4.0)
+            rating = i["rating"]
+            if rating <= 0:
+                negative_data.append(text)
+                negative_target.append((rating + 1.0) / 4.0)
+            else:
+                positive_data.append(text)
+                positive_target.append((rating + 1.0) / 4.0)
         else:
-            target.append("no score")
+            if resample:
+                raise ValueError("Can't resample without ratings")
+            negative_data.append(text)
+            negative_target.append("no score")
+
+    if resample:
+        reselect_idx = np.random.randint(
+            0, len(positive_data), size=(len(negative_data),)
+        )
+
+        pre_size = len(positive_data)
+
+        positive_data = np.array(positive_data)[reselect_idx]
+        positive_target = np.array(positive_target)[reselect_idx]
+
+        post_size = len(positive_data)
+        print(
+            "Resampled from %d to %d"
+            % (
+                pre_size,
+                post_size,
+            )
+        )
+
+    data = np.concatenate((negative_data, positive_data))
+    target = np.concatenate((negative_target, positive_target))
 
     return Dataset(
         data=np.array(data),
@@ -54,7 +89,7 @@ def _items_to_dataset(items):
 
 
 def _load_dataset(rated_items, unrated_items, *, verbose=False, max_df=0.5, min_df=5):
-    data_train = _items_to_dataset(rated_items)
+    data_train = _items_to_dataset(rated_items, resample=True)
     data_test = _items_to_dataset(unrated_items)
     """
     data_train should match:
