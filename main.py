@@ -377,6 +377,7 @@ class UserInterface(object):
 
         write_out_id = self.active_item["id"]
         write_out_id = write_out_id.replace("/", "__")
+        write_out_id += '.pdf'
 
         with open(os.path.join("pdf", write_out_id), "wb") as f:
             f.write(response.content)
