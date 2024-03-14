@@ -273,7 +273,6 @@ class UserInterface(object):
                     if self.active_item is not None
                     else []) + self.unrated_items + self.skipped_items
                 )
-        print('unrated_items to store', len(unrated_to_store))
         string_version = json.dumps(
             {
                 "rated_items": self.rated_items,
@@ -292,7 +291,7 @@ class UserInterface(object):
         return something that renders
         """
         self.sort_key = lambda record: max(
-            record["prng_score"], record["tfidf_score"], record["citation_score"]
+            record["tfidf_score"], record["citation_score"]
         )
 
         if self.active_item is not None:
@@ -310,7 +309,7 @@ class UserInterface(object):
         return self._tick(store=store)
 
     def _tick(self, store=True):
-        if len(self.unrated_items) <= 2:
+        if len(self.unrated_items) <= 40:
             self._refill()
             if store:
                 self.store()
